@@ -1,12 +1,10 @@
-from imutils.video import VideoStream
-from imutils.video import FPS
 import numpy as np
 import argparse
 import imutils
 import time
 import cv2
 import urllib
-
+#180709 캠 화면 전송후 예측 성공
 ap = argparse.ArgumentParser()
 ap.add_argument("-p", "--prototxt", required=True,
    help="path to Caffe 'deploy' prototxt file")

@@ -8,28 +8,52 @@ import urllib
 
 class GBSJ:
     def __init__(self):
-        self.info = {"Confidence": 0.2,
+        self.info = {"Confidence": 0.4,
                      "URL": "http://172.30.1.45:5000/video_feed",
                      "Model": ["MobileNetSSD_deploy.caffemodel", "pose_iter_160000.caffemodel",
                                "pose_iter_440000.caffemodel", "pose_iter_102000.caffemodel",
-                               "res10_300x300_ssd_iter_140000.caffemodel"],
+                               "res10_300x300_ssd_iter_140000.caffemodel", "tiny_yolo.caffemodel",
+                               "yolov3.cfg.txt"],
                      # [0] = MobileNetSSD, [1] = pose estimation (MPII)
                      # [2] = pose estimation(coco), [3] = pose estimation(hand)
-                     # [4] = object_tracking
+                     # [4] = object_tracking, [5] = tiny_yolo, [6] = yolov3
                      "Prototxt": ["MobileNetSSD_deploy.prototxt.txt", "pose_deploy_linevec_faster_4_stages.prototxt",
-                                  "pose_deploy.prototxt", "deploy.prototxt"],
+                                  "pose_deploy.prototxt", "deploy.prototxt", "tiny_yolo_deploy.prototxt",
+                                  "yolov3.weights"],
                      # [0] = object detection, [1] = pose estimation, [2] = hand estimation
-                     # [3] = object_tracking
-                     "Label": ["background", "aeroplane", "bicycle", "bird", "boat",
+                     # [3] = object_tracking, [4] = tiny_yolo, [5] = yolov3
+                     "Label": ["background", "aeroplane", "bicycle", "iny_yolo_deploybird", "boat",
                                 "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
                                 "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
-                                "sofa", "train", "tvmonitor"]}
+                                "sofa", "train", "tvmonitor"],
+                     "LabelYolo": [
+                         "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train",
+                         "truck", "boat", "traffic light", "fire hydrant", "stop sign",
+                         "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+                         "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella",
+                         "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard",
+                         "sports ball", "kite", "baseball bat", "baseball glove", "skateboard",
+                         "surfboard", "tennis racket", "bottle", "wine glass", "cup", "fork",
+                         "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
+                         "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
+                         "couch", "potted plant", "bed", "dining table", "toilet", "tv",
+                         "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave",
+                         "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
+                         "scissors", "teddy bear", "hair drier", "toothbrush"],
+                     }
         self.image_bytes = bytes()
 
-    def GBSJ_seting(self, model_num, prototxt_num):
+    def GBSJ_seting(self, model_num, prototxt_num, ):
         print("[GBSJ] : 설정 내용 불러오는중...")
-        self.Net = cv2.dnn.readNetFromCaffe(self.info["Prototxt"][prototxt_num], self.info["Model"][model_num])
-        # 모델 학습내용 불러오기
+        if (model_num == 6) & (prototxt_num == 5):
+            self.Net = cv2.dnn.readNetFromDarknet(self.info["Model"][model_num], self.info["Prototxt"][prototxt_num])
+            self.Net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+            self.Net.setPreferableTarget(cv2.dnn.DNN_TARGET_OPENCL)
+            self.Colors = np.random.uniform(0, 255, size=(len(self.info["LabelYolo"]), 3))
+        else:
+            self.Net = cv2.dnn.readNetFromCaffe(self.info["Prototxt"][prototxt_num], self.info["Model"][model_num])
+            self.Colors = np.random.uniform(0, 255, size=(len(self.info["Label"]), 3))
+            # 모델 학습내용 불러오기
         # self.Url = urllib.request.urlopen(self.info["URL"])
         # 웹상에서 사진 얻기 위해 설정
         print("[GBSJ] : 설정 내용 불러옴~...")
@@ -37,6 +61,8 @@ class GBSJ:
     def GBSJ_detection_JPG(self, image):
         frame = imutils.resize(image, width=300)
         # 너비가 300으로 사이즈 맞춤
+
+        colors = np.random.uniform(0, 255, size=(len(self.info["Label"]), 3))
 
         (h, w) = frame.shape[:2]
         # shape는 배열의 각차원의 크기를 반환함
@@ -73,16 +99,94 @@ class GBSJ:
                 # Label을 나타내기 위함
 
                 cv2.rectangle(frame, (startX, startY), (endX, endY),
-                             (255,0,0), 2)
+                             colors[idx], 2)
                 # 상자 그리기 image, 사각형의 위치, 색깔, 선의 두께
 
                 object_y = startY - 15 if startY - 15 > 15 else startY + 15
                 # Label을 나타낼때 위에 자리가 없으면 상자 안에 나타냄
 
                 cv2.putText(frame, object, (startX, object_y),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, colors[idx], 2)
                 # 텍스트를 추가함 image, text, text의 왼쪽 아래 위치,
                 #                    폰트, 폰트의 배율 인수, 색깔, 두께
+
+        return frame
+
+    def GBSJ_detection_yolo_JPG(self, frame, conf, Color):
+        confThreshold = conf  # 임계값
+        nmsThreshold = 0.4  # 상자 결합 할 정도
+
+        colors = Color
+
+        inpWidth = 320  # 네트워크에 넣을 이미지 너비 (320, 416, 608)
+        inpHeight = 320  # 네트워크에 넣을 이미지 높이
+
+        # 출력 형식 바꿔주는 함수
+        def getOutputsNames(net):
+            layersNames = net.getLayerNames()
+            return [layersNames[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+
+        # 상자, 라벨 그려주는 함수
+        def drawPred(idx, conf, left, top, right, bottom):
+
+            cv2.rectangle(frame, (left, top), (right, bottom), colors[idx], 3)
+
+            label = "{name}: {percentage:.2f}%".format(name=self.info["LabelYolo"][idx],
+                                               percentage=conf * 100)
+
+            y = top - 22 if top - 22 > 22 else top + 22
+
+            cv2.putText(frame, label, (left + 3, y), cv2.FONT_HERSHEY_SIMPLEX, 1.5, colors[idx], 2)
+
+        # 출력값 전처리 & 상자 합치는 함수
+        def postprocess(frame, outs):
+            frameHeight = frame.shape[0]
+            frameWidth = frame.shape[1]
+            # Scan through all the bounding boxes output from the network and keep only the
+            # ones with high confidence scores. Assign the box's class label as the class with the highest score.
+            idxs = []
+            confidences = []
+            boxes = []
+            for out in outs:
+                for detection in out:
+
+                    scores = detection[5:]
+                    idx = np.argmax(scores)
+                    confidence = scores[idx]
+
+                    if confidence > confThreshold:
+
+                        center_x = int(detection[0] * frameWidth)
+                        center_y = int(detection[1] * frameHeight)
+                        width = int(detection[2] * frameWidth)
+                        height = int(detection[3] * frameHeight)
+                        left = int(center_x - width / 2)
+                        top = int(center_y - height / 2)
+
+                        idxs.append(idx)
+                        confidences.append(float(confidence))
+                        boxes.append([left, top, width, height])
+
+            indices = cv2.dnn.NMSBoxes(boxes, confidences, confThreshold, nmsThreshold)
+
+            for i in indices:
+                i = i[0]
+                box = boxes[i]
+                left = box[0]
+                top = box[1]
+                width = box[2]
+                height = box[3]
+
+                drawPred(idxs[i], confidences[i], left, top, left + width, top + height)
+
+        blob = cv2.dnn.blobFromImage(frame, 1 / 255, (inpWidth, inpHeight), [0, 0, 0], 1, crop=False)
+
+        self.Net.setInput(blob)
+        # Net에 bolb으로 입력을 설정함
+
+        self.Result = self.Net.forward(getOutputsNames(self.Net))
+
+        postprocess(frame, self.Result)
 
         return frame
 
@@ -251,7 +355,7 @@ class GBSJ:
 
         (H, W) = frame.shape[:2]
 
-        blob = cv2.dnn.blobFromImage(frame, 1.0, (W, H),
+        blob = cv2.dnn.blobFromImage(frame, 1.0, (400, 400),
                                      (104.0, 177.0, 123.0))
         self.Net.setInput(blob)
         self.Result = self.Net.forward()
@@ -261,9 +365,11 @@ class GBSJ:
 
             if self.Result[0, 0, i, 2] > self.info["Confidence"]:
                 box = self.Result[0, 0, i, 3:7] * np.array([W, H, W, H])
+
                 rects.append(box.astype("int"))
 
                 (startX, startY, endX, endY) = box.astype("int")
+
                 cv2.rectangle(frame, (startX, startY), (endX, endY),
                               (0, 255, 0), 2)
 
@@ -427,62 +533,35 @@ cv2.destroyAllWindows()
 """
 
 """
-A = GBSJ()
-
-A.GBSJ_seting(0, 0)
-print("dsa")
-B = cv2.VideoCapture(0)
+YOLOv3 = GBSJ()
+YOLOv3.GBSJ_seting(6, 5)
+print("성공!")
+cap = cv2.VideoCapture(0)
 while True:
-    res, frame = B.read()
-    frame = imutils.resize(frame, width=368)
-    # frame = A.GBSJ_image_load()
-    image = A.GBSJ_detection_JPG(frame)
-    cv2.imshow("detection", image)
+    _, frame = cap.read()
+    image = YOLOv3.GBSJ_detection_yolo_JPG(frame, 0.5, YOLOv3.Colors)
+    cv2.imshow("YOLOv3-detection", image)
     if cv2.waitKey(1) == 27:
         break
-    if cv2.waitKey(1) == ord("a"):
-        image = A.GBSJ_pose_estimation_JPG(frame, 1)
-        cv2.imshow("detection", image)
 
-B.release()
 cv2.destroyAllWindows()
 """
 
 """
-
-1
-
-
-검출 & 포인트 그리기
-
-포인트 이어주기 (선 그리기)
-for pair in POSE_PAIRS:
-    partA = pair[0]
-    partB = pair[1]
- 
-    if points[partA] and points[partB]:
-        cv2.line(frameCopy, points[partA], points[partB], (0, 255, 0), 3)
-
-"""
-
-
-A = GBSJ()
-
-A.GBSJ_seting(4, 3)
-print("dsa")
-B = cv2.VideoCapture(0)
+Traking = GBSJ()
+Traking.GBSJ_seting(4, 3)
+print("성공!")
+cap = cv2.VideoCapture(0)
 
 from pyimagesearch.centroidtracker import CentroidTracker
 ct = CentroidTracker(5)
-
 while True:
-    _, frame = B.read()
-
-    image = A.GBSJ_traking_JPG(frame)
-
-    cv2.imshow("detection", image)
+    _, frame = cap.read()
+    image = Traking.GBSJ_traking_JPG(frame)
+    cv2.imshow("Traking-", image)
     if cv2.waitKey(1) == 27:
         break
-
-B.release()
+cap.release()
 cv2.destroyAllWindows()
+
+"""
